@@ -1,0 +1,9 @@
+Flask
+Flask-SQLAlchemy
+gunicorn
+psycopg2-binary
+pandas
+openpyxl
+python-dotenv
+gspread
+google-auth
