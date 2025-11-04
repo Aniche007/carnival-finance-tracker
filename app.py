@@ -1,4 +1,6 @@
 import os
+if os.getenv("RUN_DB_SETUP", "false").lower() == "true":
+    import database_setup
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
