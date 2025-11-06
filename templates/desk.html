@@ -18,14 +18,14 @@
 
 <h4>Your Entries</h4>
 <table class="table table-bordered">
-    <tr><th>ID</th><th>Transaction ID</th><th>Amount</th></tr>
-    {% for t in transactions %}
-    <tr>
-        <td>{{ t.id }}</td>
-        <td>{{ t.transaction_id }}</td>
-        <td>{{ t.amount or '—' }}</td>
-    </tr>
-    {% endfor %}
+  <tr><th>S.No</th><th>Transaction ID</th><th>Amount</th></tr>
+  {% for t in transactions %}
+  <tr>
+    <td>{{ loop.index }}</td>
+    <td>{{ t.transaction_id }}</td>
+    <td>{{ t.amount or '—' }}</td>
+  </tr>
+  {% endfor %}
 </table>
 
 <!-- 🔁 Auto-refresh every 30 seconds -->
