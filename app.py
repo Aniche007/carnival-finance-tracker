@@ -9,6 +9,13 @@ from datetime import datetime, timedelta, timezone
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # change before deployment
 
+# 🧠 Make session permanent so refresh won't log out
+app.permanent_session_lifetime = timedelta(hours=6)
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+
 # -----------------------------
 # Database configuration
 # -----------------------------
