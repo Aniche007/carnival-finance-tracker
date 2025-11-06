@@ -101,36 +101,33 @@ def desk():
     username = session['user']
 
     if request.method == 'POST':
-        txn_id = request.form['txn_id']
+        txn_id = request.form['txn_id'].strip()
         amount = request.form['amount']
 
-        # Prevent duplicate transaction IDs
         existing = Transaction.query.filter_by(transaction_id=txn_id).first()
         if existing:
             flash('Duplicate Transaction ID! Please verify.', 'danger')
-        else:
-            try:
-                new_txn = Transaction(transaction_id=txn_id, amount=amount, desk=username)
-                db.session.add(new_txn)
-                db.session.commit()
+            return redirect(url_for('desk'))  # <-- PRG: avoid re-post on refresh
 
-                # Append to Google Sheet
-                IST = timezone(timedelta(hours=5, minutes=30))
-                timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                sheet.append_row([
-                    new_txn.id,
-                    new_txn.transaction_id,
-                    new_txn.amount,
-                    new_txn.desk,
-                    timestamp
-                ])
+        try:
+            new_txn = Transaction(transaction_id=txn_id, amount=amount, desk=username)
+            db.session.add(new_txn)
+            db.session.commit()
 
-                flash('Transaction recorded successfully!', 'success')
-            except IntegrityError:
-                db.session.rollback()
-                flash('Error saving transaction.', 'danger')
+            # Append to Google Sheet with IST timestamp
+            IST = timezone(timedelta(hours=5, minutes=30))
+            timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+            sheet.append_row([new_txn.id, new_txn.transaction_id, new_txn.amount, new_txn.desk, timestamp])
 
-    transactions = Transaction.query.filter_by(desk=username).all()
+            flash('Transaction recorded successfully!', 'success')
+            return redirect(url_for('desk'))  # <-- PRG: avoid re-post on refresh
+        except IntegrityError:
+            db.session.rollback()
+            flash('Error saving transaction.', 'danger')
+            return redirect(url_for('desk'))  # <-- PRG: avoid re-post on refresh
+
+    # GET: render fresh page (safe to auto-refresh)
+    transactions = Transaction.query.filter_by(desk=username).order_by(Transaction.id.asc()).all()
     return render_template('desk.html', user=username, transactions=transactions)
 
 
