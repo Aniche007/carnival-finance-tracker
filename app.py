@@ -9,6 +9,9 @@ from datetime import datetime, timedelta, timezone
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # change before deployment
 
+app.config['SESSION_COOKIE_NAME'] = 'carnival_tracker_session'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 # 🧠 Make session permanent so refresh won't log out
 app.permanent_session_lifetime = timedelta(hours=6)
 
