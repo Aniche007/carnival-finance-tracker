@@ -2,22 +2,24 @@ import os
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # change before deployment
+app.secret_key = 'your_secret_key'
 
+# --- Keep users logged in across refreshes ---
 app.config['SESSION_COOKIE_NAME'] = 'carnival_tracker_session'
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-
-# 🧠 Make session permanent so refresh won't log out
-app.permanent_session_lifetime = timedelta(hours=6)
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
 @app.before_request
-def make_session_permanent():
+def keep_session_alive():
     session.permanent = True
+
 
 # -----------------------------
 # Database configuration
@@ -26,10 +28,11 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///tra
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
+
 # -----------------------------
 # Google Sheets configuration
 # -----------------------------
-SHEET_NAME = "Carnival_Transactions"  # Your sheet name
+SHEET_NAME = "Carnival_Transactions"
 SHEET_SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -49,16 +52,46 @@ class Transaction(db.Model):
     amount = db.Column(db.Float)
     desk = db.Column(db.String(50))
 
+    # NEW TOKEN FIELDS
+    tokens_50 = db.Column(db.Integer, default=0)
+    tokens_100 = db.Column(db.Integer, default=0)
+    tokens_haunted = db.Column(db.Integer, default=0)
+
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True)
     password = db.Column(db.String(50))
-    # optional role field
-    try:
-        role = db.Column(db.String(20))
-    except Exception:
-        pass
+    role = db.Column(db.String(20))
+
+
+# -----------------------------
+# Ensure DB Columns Exist
+# -----------------------------
+def ensure_token_columns():
+    with app.app_context():
+        engine = db.engine
+        dialect = engine.dialect.name
+
+        if dialect == "postgresql":
+            stmts = [
+                "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS tokens_50 INTEGER DEFAULT 0",
+                "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS tokens_100 INTEGER DEFAULT 0",
+                "ALTER TABLE transaction ADD COLUMN IF NOT EXISTS tokens_haunted INTEGER DEFAULT 0",
+            ]
+            for s in stmts:
+                engine.execute(text(s))
+        else:  # SQLite
+            cols = [r[1] for r in engine.execute(text("PRAGMA table_info('transaction')")).fetchall()]
+            alters = []
+            if "tokens_50" not in cols:
+                alters.append("ALTER TABLE transaction ADD COLUMN tokens_50 INTEGER DEFAULT 0")
+            if "tokens_100" not in cols:
+                alters.append("ALTER TABLE transaction ADD COLUMN tokens_100 INTEGER DEFAULT 0")
+            if "tokens_haunted" not in cols:
+                alters.append("ALTER TABLE transaction ADD COLUMN tokens_haunted INTEGER DEFAULT 0")
+            for s in alters:
+                engine.execute(text(s))
 
 
 # -----------------------------
@@ -107,29 +140,50 @@ def desk():
         txn_id = request.form['txn_id'].strip()
         amount = request.form['amount']
 
+        tokens_50 = int(request.form.get('tokens_50') or 0)
+        tokens_100 = int(request.form.get('tokens_100') or 0)
+        tokens_haunted = int(request.form.get('tokens_haunted') or 0)
+
+        # Prevent duplicate transaction IDs
         existing = Transaction.query.filter_by(transaction_id=txn_id).first()
         if existing:
             flash('Duplicate Transaction ID! Please verify.', 'danger')
-            return redirect(url_for('desk'))  # <-- PRG: avoid re-post on refresh
+            return redirect(url_for('desk'))
 
         try:
-            new_txn = Transaction(transaction_id=txn_id, amount=amount, desk=username)
+            new_txn = Transaction(
+                transaction_id=txn_id,
+                amount=amount,
+                desk=username,
+                tokens_50=tokens_50,
+                tokens_100=tokens_100,
+                tokens_haunted=tokens_haunted
+            )
             db.session.add(new_txn)
             db.session.commit()
 
-            # Append to Google Sheet with IST timestamp
+            # Append to Google Sheet
             IST = timezone(timedelta(hours=5, minutes=30))
             timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-            sheet.append_row([new_txn.id, new_txn.transaction_id, new_txn.amount, new_txn.desk, timestamp])
+            sheet.append_row([
+                new_txn.id,
+                new_txn.transaction_id,
+                new_txn.amount,
+                new_txn.desk,
+                timestamp,
+                new_txn.tokens_50,
+                new_txn.tokens_100,
+                new_txn.tokens_haunted
+            ])
 
             flash('Transaction recorded successfully!', 'success')
-            return redirect(url_for('desk'))  # <-- PRG: avoid re-post on refresh
+            return redirect(url_for('desk'))
+
         except IntegrityError:
             db.session.rollback()
             flash('Error saving transaction.', 'danger')
-            return redirect(url_for('desk'))  # <-- PRG: avoid re-post on refresh
+            return redirect(url_for('desk'))
 
-    # GET: render fresh page (safe to auto-refresh)
     transactions = Transaction.query.filter_by(desk=username).order_by(Transaction.id.asc()).all()
     return render_template('desk.html', user=username, transactions=transactions)
 
@@ -142,7 +196,7 @@ def admin():
     if 'user' not in session or session['user'] != 'admin':
         return redirect(url_for('login'))
 
-    transactions = Transaction.query.all()
+    transactions = Transaction.query.order_by(Transaction.id.asc()).all()
     return render_template('admin.html', transactions=transactions)
 
 
@@ -155,15 +209,12 @@ def delete_transaction(txn_id):
         flash('Unauthorized access', 'danger')
         return redirect(url_for('admin'))
 
-    # Fetch the transaction first
     txn = Transaction.query.get_or_404(txn_id)
     txn_id_str = str(txn.transaction_id)
 
-    # Delete from database
     db.session.delete(txn)
     db.session.commit()
 
-    # Also delete from Google Sheet
     try:
         all_values = sheet.get_all_values()
         header = all_values[0]
@@ -171,11 +222,8 @@ def delete_transaction(txn_id):
 
         for i in range(1, len(all_values)):
             if all_values[i][txn_col_index] == txn_id_str:
-                sheet.delete_rows(i + 1)  # +1 because sheet rows are 1-indexed
-                print(f"✅ Deleted transaction {txn_id_str} from Google Sheet.")
+                sheet.delete_rows(i + 1)
                 break
-        else:
-            print(f"⚠️ Transaction {txn_id_str} not found in sheet.")
     except Exception as e:
         print(f"⚠️ Error deleting from sheet: {e}")
 
@@ -189,4 +237,5 @@ def delete_transaction(txn_id):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        ensure_token_columns()
     app.run(debug=True)
