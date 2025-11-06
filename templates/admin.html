@@ -5,37 +5,42 @@
 <hr>
 
 <table class="table table-striped table-bordered">
-  <thead>
-    <tr>
-      <th>S.No</th>
-      <th>Transaction ID</th>
-      <th>Amount</th>
-      <th>Desk</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for t in transactions %}
-    <tr>
-      <td>{{ loop.index }}</td>
-      <td>{{ t.transaction_id }}</td>
-      <td>{{ t.amount or '—' }}</td>
-      <td>{{ t.desk }}</td>
-      <td>
-        <form method="post" action="{{ url_for('delete_transaction', txn_id=t.id) }}" style="display:inline;">
-          <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
+    <thead>
+        <tr>
+            <th>S.No</th>
+            <th>Transaction ID</th>
+            <th>Amount</th>
+            <th>Desk</th>
+            <th>₹50 Tokens</th>
+            <th>₹100 Tokens</th>
+            <th>Haunted Tokens</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in transactions %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ t.transaction_id }}</td>
+            <td>{{ t.amount or '—' }}</td>
+            <td>{{ t.desk }}</td>
+            <td>{{ t.tokens_50 or 0 }}</td>
+            <td>{{ t.tokens_100 or 0 }}</td>
+            <td>{{ t.tokens_haunted or 0 }}</td>
+            <td>
+                <form method="post" action="{{ url_for('delete_transaction', txn_id=t.id) }}" style="display:inline;">
+                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
 </table>
 
+<!-- Auto-refresh every 10 seconds -->
 <script>
-// Auto-refresh every 30 seconds
 setInterval(() => {
     window.location.reload();
-}, 30000);
+}, 10000);
 </script>
-
 {% endblock %}
