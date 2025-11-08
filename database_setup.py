@@ -15,7 +15,7 @@ with app.app_context():
             return User(username=username, password=password)
 
     # Create users
-    admin = make_user("admin", "admin123", "admin")
+    admin = make_user("admin", "sc@2025", "admin")
     desk1 = make_user("desk1", "desk1pass", "desk")
     desk2 = make_user("desk2", "desk2pass", "desk")
     desk3 = make_user("desk3", "desk3pass", "desk")
